@@ -2,6 +2,7 @@
 #include "log.h"
 #include "acpi.h"
 #include "apic.h"
+#include "hpet.h"
 
 typedef struct {
     ACPISDTHeader header;
@@ -56,6 +57,39 @@ typedef uint8_t ioapic_flags_t;
 #define IOAPIC_FLAG_HIGH  0b0
 #define IOAPIC_FLAG_LEVEL 0b10
 #define IOAPIC_FLAG_EDGE  0b00
+
+#define MAX_IRQ_OVERRIDES 16
+typedef struct {
+    uint8_t bus_src;
+    uint8_t irq_src;
+    uint32_t gsi;
+    uint16_t flags;
+} IrqOverride;
+static IrqOverride irq_overrides[MAX_IRQ_OVERRIDES];
+static size_t irq_override_count = 0;
+
+static uint32_t gsi_for_irq(uint8_t isa_irq) {
+    for(size_t i = 0; i < irq_override_count; ++i) {
+        if(irq_overrides[i].irq_src == isa_irq)
+            return irq_overrides[i].gsi;
+    }
+    return isa_irq;
+}
+
+static ioapic_flags_t flags_for_irq(uint8_t isa_irq) {
+    for(size_t i = 0; i < irq_override_count; ++i) {
+        if(irq_overrides[i].irq_src == isa_irq) {
+            ioapic_flags_t f = 0;
+            uint16_t polarity = irq_overrides[i].flags & 0x03;
+            uint16_t trigger  = (irq_overrides[i].flags >> 2) & 0x03;
+            if(polarity == 3) f |= IOAPIC_FLAG_LOW;
+            if(trigger == 3)  f |= IOAPIC_FLAG_LEVEL;
+            return f;
+        }
+    }
+    return IOAPIC_FLAG_HIGH | IOAPIC_FLAG_EDGE;
+}
+
 #define IOAPIC_REDIRECTION_BASE 0x10
 
 #define IOAPIC_DELIVERY_MODE_SHIFT      8
@@ -162,6 +196,18 @@ void init_apic() {
             if(entry->length < sizeof(InterruptOverrideEntry)) {
                 continue;
             }
+            InterruptOverrideEntry* ovr = (InterruptOverrideEntry*)entry;
+            if(irq_override_count < MAX_IRQ_OVERRIDES) {
+                irq_overrides[irq_override_count] = (IrqOverride){
+                    .bus_src = ovr->bus_src,
+                    .irq_src = ovr->irq_src,
+                    .gsi    = ovr->gsi,
+                    .flags  = ovr->flags,
+                };
+                kinfo("IRQ override: ISA IRQ %u -> GSI %u (bus=%u flags=0x%X)",
+                    ovr->irq_src, ovr->gsi, ovr->bus_src, ovr->flags);
+                irq_override_count++;
+            }
         } break;
         case MADT_ENTRY_IOAPIC: {
             if(entry->length < sizeof(IOApicEntry)) {
@@ -185,9 +231,19 @@ void init_apic() {
     lapic_write(lapic_addr, LAPIC_DIV_OFFSET    , 3);
     lapic_write(lapic_addr, LAPIC_INITCNT_OFFSET, 0xFFFFFFFF);
     irq_clear(0);
-    // NOTE: For a little more accuracy we sleep for 10ms and then divide by 10
-    while(tmp_pit_ticks < 10) asm volatile("hlt");
-    ticks = (0xFFFFFFFF - lapic_read (lapic_addr, LAPIC_CURRCNT_OFFSET)) / 10;
+
+    if(hpet_is_present()) {
+        uint64_t hpet_start = hpet_read_counter();
+        uint64_t ticks_per_ms = hpet_get_frequency() / 1000;
+        while((hpet_read_counter() - hpet_start) < ticks_per_ms * 10) asm volatile("hlt");
+        ticks = (0xFFFFFFFF - lapic_read(lapic_addr, LAPIC_CURRCNT_OFFSET)) / 10;
+        kinfo("LAPIC timer calibrated via HPET: %zu ticks/ms", ticks);
+    } else {
+        // NOTE: For a little more accuracy we sleep for 10ms and then divide by 10
+        while(tmp_pit_ticks < 10) asm volatile("hlt");
+        ticks = (0xFFFFFFFF - lapic_read(lapic_addr, LAPIC_CURRCNT_OFFSET)) / 10;
+        kinfo("LAPIC timer calibrated via PIT: %zu ticks/ms", ticks);
+    }
     lapic_write(lapic_addr, LAPIC_LVT_TIMER_OFFSET, LVT_TIMER_PERIODIC | LVT_MASK | LAPIC_TIMER_IRQ);
     lapic_write(lapic_addr, LAPIC_INITCNT_OFFSET  , ticks);
     // Disable PIC
@@ -210,7 +266,9 @@ intptr_t apic_reserve(IntController* _, size_t irq) {
     if(irq == LAPIC_TIMER_IRQ) return LAPIC_TIMER_IRQ;
     int vec = vec_alloc();
     if(vec < 0) return -LIMITS;
-    ioapic_register(vec, irq, 0, IOAPIC_FLAG_HIGH | IOAPIC_FLAG_EDGE);
+    uint32_t gsi = gsi_for_irq((uint8_t)irq);
+    ioapic_flags_t flags = flags_for_irq((uint8_t)irq);
+    ioapic_register(vec, gsi, 0, flags);
     return vec;
 }
 void apic_eoi(IntController* _, size_t _irq) {
@@ -222,7 +280,8 @@ void apic_set_mask(IntController* _, size_t irq, uint32_t on) {
         reg_low  = (reg_low & ~LVT_MASK) | (on << LVT_MASK_SHIFT);
         lapic_write(lapic_addr, LAPIC_LVT_TIMER_OFFSET, reg_low);
     } else {
-        ioapic_set_mask(irq, on);
+        uint32_t gsi = gsi_for_irq((uint8_t)irq);
+        ioapic_set_mask(gsi, on);
     }
 }
 void lapic_timer_reload(void) {

@@ -1,4 +1,5 @@
 #include "../include/lava2d/lava2d.h"
+#include "../include/lava2d/lava2d_font.h"
 #include <assert.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -366,4 +367,50 @@ void lava2d_present(Lava2DContext* ctx) {
     });
     
     ctx->dirty = false;
+}
+
+void lava2d_draw_char(
+    Lava2DContext* ctx,
+    int x, int y,
+    char c,
+    uint32_t color
+) {
+    unsigned char ch = (unsigned char)c;
+    const uint8_t* glyph = &lava2d_builtin_font[ch * LAVA2D_FONT_HEIGHT];
+
+    for(int row = 0; row < LAVA2D_FONT_HEIGHT; row++) {
+        uint8_t bits = glyph[row];
+        for(int col = 0; col < LAVA2D_FONT_WIDTH; col++) {
+            if(bits & (0x80 >> col))
+                lava2d_put_pixel_internal(ctx, x + col, y + row, color);
+        }
+    }
+}
+
+int lava2d_draw_string(
+    Lava2DContext* ctx,
+    int x, int y,
+    const char* str,
+    uint32_t color
+) {
+    int ox = x;
+    for(; *str; str++) {
+        if(*str == '\n') {
+            x = ox;
+            y += LAVA2D_FONT_HEIGHT;
+            continue;
+        }
+        lava2d_draw_char(ctx, x, y, *str, color);
+        x += LAVA2D_FONT_WIDTH;
+    }
+    return x - ox;
+}
+
+int lava2d_text_width(const char* str) {
+    int w = 0;
+    for(; *str; str++) {
+        if(*str == '\n') break;
+        w += LAVA2D_FONT_WIDTH;
+    }
+    return w;
 }

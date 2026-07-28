@@ -1,5 +1,5 @@
 #define KNAME "LNU"
-#define KVER "0.2.2"
+#define KVER "0.3.0"
 #define DNAME "LavaOS"
-#define DVER "0.2.2"
-#define DCODE "Phoenix"
+#define DVER "0.3.0"
+#define DCODE "Mountain"

@@ -46,13 +46,14 @@
 #include "mem/shared_mem.h"
 #include "printk.h"
 #include "term/fb/fb.h"
+#include "hpet.h"
 
 #include "fblogger.h"
 #include "hash_table.h"
 #include "kht.h"
 
 static void set_version() {
-    kernel.kname = KNAME; // LNU (LNU is Not Unix) is a MinOS-based kernel with some changes and optimizations.
+    kernel.kname = KNAME;
     kernel.kver = KVER;
 
     kernel.dname = DNAME;
@@ -82,42 +83,45 @@ void _start() {
 
     set_version();
 
-    printk("Using %s kernel. (version %s)\n", kernel.kname, kernel.kver);
-    printk("Now booting %s. (version %s, codename %s)\n", kernel.dname, kernel.dver, kernel.dcode);
+    printk("Using %s kernel v%s\n", kernel.kname, kernel.kver);
+    printk("Now booting %s %s v%s\n", kernel.dname, kernel.dcode, kernel.dver);
 
     printk("\n");
 
-    printk("[WAIT] Initilazing serial...\n");
+    printk("[WAIT] Initializing serial...\n");
     serial_init();
     kernel.logger = &serial_logger;
     kernel.logger->level = LOG_ALL;
-    printk("[ OK ] Initilazed serial.\n");
-    printk("[WAIT] Initilazing cmdline...\n");
+    printk("[ OK ] Initialized serial.\n");
+    printk("[WAIT] Initializing cmdline...\n");
     init_cmdline();
-    printk("[ OK ] Initilazed cmdline.\n");
-    printk("[WAIT] Initilazing loggers...\n");
+    printk("[ OK ] Initialized cmdline.\n");
+    printk("[WAIT] Initializing loggers...\n");
     init_loggers();
 
     init_fb_logger();
 
-    printk("[ OK ] Initilazed loggers.\n");
-    printk("[WAIT] Initilazing GDT and IDT...\n");
+    printk("[ OK ] Initialized loggers.\n");
+    printk("[WAIT] Initializing GDT and IDT...\n");
     init_gdt();
     disable_interrupts();
     init_idt();
-    printk("[ OK ] Initilazed GDT and IDT.\n");
-    printk("[WAIT] Initilazing essential components and devices...\n");
+    printk("[ OK ] Initialized GDT and IDT.\n");
+    printk("[WAIT] Initializing essential components and devices...\n");
     init_exceptions();
     reload_tss();
     init_bitmap();
     init_paging();
     KERNEL_SWITCH_VTABLE();
     enable_cpu_features();
-    printk("[ OK ] Initilazed essential components and devices.\n");
+    printk("[ OK ] Initialized essential components and devices.\n");
     printk("[WAIT] Starting Interrupt controller...\n");
     init_pic();
     init_acpi();
     printk("[ OK ] Started Interrupt controller.\n");
+    printk("[WAIT] Initializing HPET...\n");
+    hpet_init();
+    printk("[ OK ] Initialized HPET.\n");
     enable_interrupts();
     printk("[WAIT] Configuring caches...\n");
     init_cache_cache();
@@ -133,7 +137,7 @@ void _start() {
     init_pci();
     printk("[VERB] Loading SMP...\n");
     init_smp();
-    printk("[VERB] Initialazing load balancer lock...\n");
+    printk("[VERB] Initializing load balancer lock...\n");
     spinlock_init(&kernel.load_balancer_lock);
     printk("[VERB] Configuring memory, starting core tasks and scheduler...\n");
     printk("[VERB] Memregion...\n");
@@ -153,18 +157,17 @@ void _start() {
     printk("[VERB] SHM Cache...\n");
     init_shm_cache();
     enable_interrupts();
-    printk("[WAIT] Initilazing filesystms...\n");
-    printk("[VERB] Initilazing VFS...\n");
+    printk("[WAIT] Initializing filesystms...\n");
+    printk("[VERB] Initializing VFS...\n");
     init_vfs();
-    printk("[VERB] Initilazing rootfs...\n");
+    printk("[VERB] Initializing rootfs...\n");
     init_rootfs();
-    printk("[ OK ] Initilazed filesystms.\n");
-    printk("[VERB] Initilazing devices...\n");
+    printk("[ OK ] Initialized filesystms.\n");
+    printk("[VERB] Initializing devices...\n");
     init_devices();
-    printk("[VERB] Initilazing TTY...\n");
+    printk("[VERB] Initializing TTY...\n");
     init_tty();
 
-    printk("[VERB] Spawning init...\n");
     spawn_init();
 
     disable_interrupts();

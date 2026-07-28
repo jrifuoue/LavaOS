@@ -72,6 +72,7 @@ static bool build(Build*, Cmd* cmd) {
     if(!nob_mkdir_if_not_exists_silent("initrd/etc")) return false;
     if(!nob_mkdir_if_not_exists_silent("initrd/etc/init.d")) return false;
     if(!nob_mkdir_if_not_exists_silent("initrd/sys")) return false;
+    if(!nob_mkdir_if_not_exists_silent("initrd/include")) return false;
     setenv("BINDIR"   , nob_temp_realpath("bin"), 1);
     if(!getenv("CC")) setenv("CC"       , "cc", 1);
     if(!getenv("LD")) setenv("LD"       , "ld", 1);

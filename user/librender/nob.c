@@ -114,4 +114,12 @@ int main(int argc, char** argv) {
     char* rootdir = getenv("ROOTDIR");
     if(rootdir && !copy_file(so, temp_sprintf("%s/lib/librender.so", rootdir))) 
         return 1;
+
+    // Copy librender headers to initrd/include/lava2d/
+    if(rootdir) {
+        cmd_append(&cmd, "mkdir", "-p", temp_sprintf("%s/include/lava2d", rootdir));
+        nob_cmd_run_sync_and_reset(&cmd);
+        cmd_append(&cmd, "cp", "-r", "include/lava2d/.", temp_sprintf("%s/include/lava2d/", rootdir));
+        nob_cmd_run_sync_and_reset(&cmd);
+    }
 }

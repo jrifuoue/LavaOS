@@ -1,25 +1,97 @@
 #include "pci.h"
 #include "port.h"
 #include "printk.h"
+#include "acpi.h"
+#include "iomem.h"
+#include "log.h"
+
+// PCIe ECAM (Enhanced Configuration Access Mechanism)
+typedef struct {
+    void* base;
+    bool present;
+} PciEcam;
+static PciEcam ecam = {0};
+
+typedef struct {
+    ACPISDTHeader header;
+    uint64_t base_addresses[];
+} __attribute__((packed)) MCFGTable;
+
+typedef struct {
+    uint64_t base_addr;
+    uint16_t pci_seg;
+    uint8_t start_bus;
+    uint8_t end_bus;
+    uint32_t reserved;
+} __attribute__((packed)) MCFGEntry;
+
+void pci_init_ecam(void) {
+    ACPISDTHeader* header = acpi_find("MCFG");
+    if(!header) {
+        kinfo("No MCFG table, using legacy PCI config space");
+        return;
+    }
+
+    MCFGTable* mcfg = (MCFGTable*)header;
+    size_t entry_count = (header->length - sizeof(ACPISDTHeader) - sizeof(uint64_t)) / sizeof(MCFGEntry);
+    MCFGEntry* entries = (MCFGEntry*)mcfg->base_addresses;
+
+    for(size_t i = 0; i < entry_count; ++i) {
+        if(entries[i].base_addr == 0) continue;
+        if(entries[i].pci_seg != 0) continue;
+
+        void* mapped = iomap_bytes(
+            entries[i].base_addr, 0x1000000,
+            KERNEL_PFLAG_PRESENT | KERNEL_PFLAG_WRITE | KERNEL_PFLAG_CACHE_DISABLE
+        );
+        if(!mapped) {
+            kwarn("Failed to map ECAM at %p", (void*)entries[i].base_addr);
+            continue;
+        }
+
+        ecam.base = mapped;
+        ecam.present = true;
+        kinfo("PCIe ECAM: base=%p seg=%u bus=%u-%u",
+            mapped, entries[i].pci_seg, entries[i].start_bus, entries[i].end_bus);
+        return;
+    }
+    kinfo("No usable ECAM base found, using legacy PCI config space");
+}
+
+static volatile uint32_t* ecam_config_addr(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset) {
+    uint32_t addr = ((uint32_t)bus << 20) | ((uint32_t)slot << 15) | ((uint32_t)func << 12) | (offset & 0xFFC);
+    return (volatile uint32_t*)((uintptr_t)ecam.base + addr);
+}
+
+uint32_t pci_config_read_dword(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset) {
+    if(ecam.present) {
+        // Check device exists via vendor ID
+        volatile uint32_t* addr = ecam_config_addr(bus, slot, func, 0);
+        if(*addr == 0xFFFFFFFF) return 0xFFFFFFFF;
+        addr = ecam_config_addr(bus, slot, func, offset & 0xFC);
+        return *addr;
+    }
+    uint32_t address = (uint32_t)(((uint32_t)bus) << 16) | (((uint32_t)slot)<<11) | 
+            (((uint32_t)func) << 8) | (offset & 0xFC) | ((uint32_t)0x80000000);
+    outl(0xCF8, address);
+    return inl(0xCFC);
+}
 
 uint16_t pci_config_read_word(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset) {
-   uint32_t address = (uint32_t)(((uint32_t)bus) << 16) | (((uint32_t)slot)<<11) | 
-           (((uint32_t)func) << 8) | (offset & 0xFC) | ((uint32_t)0x80000000);
-   outl(0xCF8, address);
-   return (uint16_t)((inl(0xCFC) >> ((offset & 2) * 8)) & 0xFFFF);
-}
-uint32_t pci_config_read_dword(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset) {
-   uint32_t address = (uint32_t)(((uint32_t)bus) << 16) | (((uint32_t)slot)<<11) | 
-           (((uint32_t)func) << 8) | (offset & 0xFC) | ((uint32_t)0x80000000);
-   outl(0xCF8, address);
-   return inl(0xCFC);
+   uint32_t dword = pci_config_read_dword(bus, slot, func, offset & 0xFC);
+   return (uint16_t)((dword >> ((offset & 2) * 8)) & 0xFFFF);
 }
 
 void pci_config_write_dword(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset, uint32_t what) {
-   uint32_t address = (uint32_t)(((uint32_t)bus) << 16) | (((uint32_t)slot)<<11) | 
-           (((uint32_t)func) << 8) | (offset & 0xFC) | ((uint32_t)0x80000000);
-   outl(0xCF8, address);
-   outl(0xCFC, what);
+    if(ecam.present) {
+        volatile uint32_t* addr = ecam_config_addr(bus, slot, func, offset & 0xFC);
+        *addr = what;
+        return;
+    }
+    uint32_t address = (uint32_t)(((uint32_t)bus) << 16) | (((uint32_t)slot)<<11) | 
+            (((uint32_t)func) << 8) | (offset & 0xFC) | ((uint32_t)0x80000000);
+    outl(0xCF8, address);
+    outl(0xCFC, what);
 }
 #include "kernel.h"
 #include "log.h"
@@ -99,6 +171,10 @@ intptr_t pci_map_bar0(Bar* bar, size_t bus, size_t slot, size_t func) {
 }
 intptr_t pci_scan(Pci* pci) {
     for(size_t bus = 0; bus < PCI_BUS_COUNT; ++bus) {
+        // Quick check: if slot 0, func 0 vendor is 0xFFFF, skip entire bus
+        uint16_t vid0 = pci_config_read_word(bus, 0, 0, 0);
+        if(vid0 == 0xFFFF) continue;
+
         for(size_t slot = 0; slot < PCI_SLOT_COUNT; ++slot) {
             uint16_t vendor_id = pci_config_read_word(bus, slot, 0, 0);
             if(vendor_id == 0xFFFF) continue;
@@ -201,6 +277,7 @@ void pci_device_msi_set(PciDevice* dev, uintptr_t addr, uint8_t vec) {
 #include <usb/usb.h>
 void init_pci() {
     assert(kernel.pci_device_cache = create_new_cache(sizeof(PciDevice), "PciDevice"));
+    pci_init_ecam();
     intptr_t e;
     if((e=pci_scan(&pci)) < 0)
         kpanic("(pci) Failure on pci scan: %s", status_str(e));

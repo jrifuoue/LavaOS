@@ -113,4 +113,11 @@ int main(int argc, char** argv) {
     char* rootdir = getenv("ROOTDIR");
     if(rootdir && !copy_file(so, temp_sprintf("%s/lib/librtc.so", rootdir))) 
         return 1;
+
+    if(rootdir) {
+        cmd_append(&cmd, "mkdir", "-p", temp_sprintf("%s/include/librtc", rootdir));
+        nob_cmd_run_sync_and_reset(&cmd);
+        cmd_append(&cmd, "cp", "-r", "include/.", temp_sprintf("%s/include/librtc/", rootdir));
+        nob_cmd_run_sync_and_reset(&cmd);
+    }
 }

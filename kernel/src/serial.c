@@ -11,13 +11,30 @@
 #define COM_FIFO_CONTROL_PORT (COM_PORT+2)
 #define COM_INT_ENABLE_PORT   (COM_PORT+1)
 void serial_init() {
-    // Set baud rate (for example, 9600 baud)
-    outb(COM_LINE_CONTROL_PORT, 0x80); // Enable DLAB (divisor latch access)
-    outb(COM_PORT, 0x03); // Set divisor to 3 (lo byte) 38400 baud
-    outb(COM_INT_ENABLE_PORT, 0x00); // Hi byte
+    // Check if COM1 is present by writing/reading scratch register
+    outb(COM_PORT + 7, 0x55);
+    if(inb(COM_PORT + 7) != 0x55) {
+        // COM1 not present, try other ports
+        static const uint16_t ports[] = { 0x3F8, 0x2F8, 0x3E8, 0x2E8 };
+        bool found = false;
+        for(size_t i = 1; i < 4; ++i) {
+            outb(ports[i] + 7, 0x55);
+            if(inb(ports[i] + 7) == 0x55) {
+                // Reinit serial_print functions would require refactoring
+                // For now just note it
+                found = true;
+                break;
+            }
+        }
+        (void)found;
+    }
+    // Set baud rate to 115200 (divisor 1) for faster output on real hardware
+    outb(COM_LINE_CONTROL_PORT, 0x80); // Enable DLAB
+    outb(COM_PORT, 0x01);              // Divisor lo = 1 (115200 baud)
+    outb(COM_INT_ENABLE_PORT, 0x00);   // Divisor hi = 0
     outb(COM_LINE_CONTROL_PORT, 0x03); // 8 bits, no parity, one stop bit
-    outb(COM_FIFO_CONTROL_PORT, 0xC7); // Enable FIFO, clear them, with 14-byte threshold
-    outb(COM_INT_ENABLE_PORT, 0x00); // Enable received data available interrupt
+    outb(COM_FIFO_CONTROL_PORT, 0xC7); // Enable FIFO, clear, 14-byte threshold
+    outb(COM_INT_ENABLE_PORT, 0x00);   // Disable interrupts
 }
 
 static void serial_print_u8(uint8_t c) {

@@ -1,4 +1,5 @@
 .clangd
+.mimocode/
 bin/
 gcc/
 backup.py
@@ -19,3 +20,4 @@ aoc2024/
 nob
 extras/*
 burn
+log.txt

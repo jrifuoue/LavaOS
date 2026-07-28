@@ -947,8 +947,6 @@ void handle_mouse_event(int what, int x, int y, int button) {
                               hide_button = menu_get_hide_rect(win),
                               min_button  = menu_get_min_rect(win);
                     if(rect_collide_point(&x_button, &cursorp)) {
-                        Rectangle rect = win->rect;
-    
                         // Send close signal as a key event
                         WmEvent event = { 0 };
                         event.window = win->child_index;
@@ -957,14 +955,7 @@ void handle_mouse_event(int what, int x, int y, int button) {
                         WM_SETKEYCODE(&event, 0);
                         send_event(win->parent_client->fd, &event);
     
-                        // Wait a bit for app to process
-                        for(volatile int i = 0; i < 100000; i++) {}
-    
-                        list_remove(&win->list);
-                        free(win);
-                        redraw_region(&fb0, &rect);
-                        draw_image(&fb0, &cursor, mouse_x, mouse_y);
-                        flush_framebuffer(&fb0);
+                        // Client disconnect will be handled by client_thread
                         info("Close");
                         return;
                     } else if (rect_collide_point(&min_button, &cursorp)) {
@@ -990,6 +981,7 @@ void handle_mouse_event(int what, int x, int y, int button) {
                 list_append(&windows, &win->list);
                 // TODO: Optimise this to not redraw the entire window.
                 draw_window(&fb0, win);
+                draw_image(&fb0, &cursor, mouse_x, mouse_y);
                 flush_framebuffer(&fb0);
                 return;
             }

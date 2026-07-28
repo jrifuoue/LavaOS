@@ -113,4 +113,12 @@ int main(int argc, char** argv) {
     char* rootdir = getenv("ROOTDIR");
     if(rootdir && !copy_file(so, temp_sprintf("%s/lib/libpluto.so", rootdir))) 
         return 1;
+
+    // Copy libpluto headers to initrd/include/libpluto/
+    if(rootdir) {
+        cmd_append(&cmd, "mkdir", "-p", temp_sprintf("%s/include/libpluto", rootdir));
+        nob_cmd_run_sync_and_reset(&cmd);
+        cmd_append(&cmd, "cp", "-r", "include/.", temp_sprintf("%s/include/libpluto/", rootdir));
+        nob_cmd_run_sync_and_reset(&cmd);
+    }
 }

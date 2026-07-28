@@ -59,6 +59,7 @@ intptr_t fork(Task* task, Task* result, void* frame) {
         list_insert(&result->list, &processor->scheduler.queue);
         spinlock_unlock(&kernel.load_balancer_lock);
     }
+    kinfo("Spawning `%s` id=%zu pid=%zu", task->name, (size_t)result->process->id, (size_t)result->id);
     return result->process->id;
 }
 intptr_t exec_new(const char* path, Args* args, Args* env) {    
@@ -94,7 +95,6 @@ intptr_t exec_new(const char* path, Args* args, Args* env) {
         process_drop(process);
         return e;
     }
-    kinfo("Spawning `%s` id=%zu pid=%zu", path, (size_t)e, ((Process*)(kernel.processes.items[(size_t)e]))->main_thread->id);
     return process->id;
 }
 static intptr_t args_push(Task* task, Args* args, char** stack_head, char*** argv) {
@@ -330,5 +330,6 @@ intptr_t exec(Task* task, Path* path, Args* args, Args* envs) {
         list_insert(&task->list, &processor->scheduler.queue);
         spinlock_unlock(&kernel.load_balancer_lock);
     }
+    kinfo("Spawning `%s` id=%zu pid=%zu", task->name, (size_t)task->process->id, (size_t)task->id);
     return e;
 }

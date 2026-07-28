@@ -97,4 +97,14 @@ int main(int argc, char** argv) {
     char* rootdir = getenv("ROOTDIR");
     if(rootdir && !copy_file(so, temp_sprintf("%s/lib/libwm.so", rootdir))) 
         return 1;
+
+    // Copy libwm headers to initrd/include/libwm/
+    if(rootdir) {
+        cmd_append(&cmd, "mkdir", "-p", temp_sprintf("%s/include/libwm", rootdir));
+        nob_cmd_run_sync_and_reset(&cmd);
+        cmd_append(&cmd, "cp", "include/libwm.h", temp_sprintf("%s/include/libwm/libwm.h", rootdir));
+        nob_cmd_run_sync_and_reset(&cmd);
+        cmd_append(&cmd, "cp", "include/libwm/.", temp_sprintf("%s/include/libwm/", rootdir));
+        nob_cmd_run_sync_and_reset(&cmd);
+    }
 }

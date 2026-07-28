@@ -48,9 +48,9 @@ intptr_t ptty_spawn_shell(Ptty* ptty) {
         close(STDOUT_FILENO);
         close(STDIN_FILENO);
         close(STDERR_FILENO);
-        if(open(name, O_WRONLY) < 0 || /*STDOUT*/
-           open(name, O_RDONLY) < 0 || /*STDIN*/
-           open(name, O_WRONLY) < 0    /*STDERR*/
+        if(open(name, O_RDONLY) < 0 || /*STDIN  (fd 0)*/
+           open(name, O_WRONLY) < 0 || /*STDOUT (fd 1)*/
+           open(name, O_WRONLY) < 0    /*STDERR (fd 2)*/
         ) {
             return 1;
         }

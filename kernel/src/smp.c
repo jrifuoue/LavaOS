@@ -4,6 +4,7 @@
 #include "log.h"
 #include "printk.h"
 #include "kpanic.h"
+#include "memory.h"
 
 static volatile struct limine_smp_request limine_smp_request = {
     .id = LIMINE_SMP_REQUEST,
@@ -39,8 +40,8 @@ void ap_main(struct limine_smp_info* info) {
     __asm__ volatile("sti; nop; nop");
 }
 
-#define MAX_CPUS 1024
-static uint8_t kernel_ap_stacks[MAX_CPUS][AP_STACK_SIZE] __attribute__((aligned(PAGE_SIZE)));
+static void** ap_stacks = NULL;
+static size_t ap_stack_count = 0;
 
 void init_smp(void) {
     if(!limine_smp_request.response) return;
@@ -51,20 +52,42 @@ void init_smp(void) {
     }
 
     size_t cpu_count = limine_smp_request.response->cpu_count;
-    // TODO: Allow unlimited CPU cores
-    if(cpu_count > MAX_CPUS) {
-        kpanic("Too many CPU cores! Maximix cores allowed = %u, found %zu", MAX_CPUS, cpu_count);
-    }
     // Mark BSP as initialised
     kernel.processors[limine_smp_request.response->bsp_lapic_id].initialised = true;
+
+    // Dynamically allocate stacks only for non-BSP cores
+    size_t ap_count = 0;
+    for(size_t i = 0; i < cpu_count; ++i) {
+        struct limine_smp_info* info = limine_smp_request.response->cpus[i];
+        if(info->lapic_id != limine_smp_request.response->bsp_lapic_id)
+            ap_count++;
+    }
+
+    if(ap_count > 0) {
+        ap_stacks = kernel_malloc(ap_count * sizeof(void*));
+        if(!ap_stacks) {
+            kpanic("Failed to allocate AP stacks");
+        }
+        ap_stack_count = ap_count;
+    }
+
+    size_t stack_idx = 0;
     for(size_t i = 0; i < cpu_count; ++i) {
         struct limine_smp_info* info = limine_smp_request.response->cpus[i];
         if(info->lapic_id == limine_smp_request.response->bsp_lapic_id)
             continue;
         if(kernel.max_processor_id < info->lapic_id)
             kernel.max_processor_id = info->lapic_id;
-        // Assign stack from preallocated array instead of malloc
-        info->extra_argument = (uintptr_t)(kernel_ap_stacks[i] + AP_STACK_SIZE);
+
+        void* stack = kernel_malloc(AP_STACK_SIZE);
+        if(!stack) {
+            kpanic("Failed to allocate AP stack for core %u", (unsigned)info->lapic_id);
+        }
+        memset(stack, 0, AP_STACK_SIZE);
+        ap_stacks[stack_idx++] = stack;
+        info->extra_argument = (uintptr_t)((char*)stack + AP_STACK_SIZE);
         info->goto_address = (void*)&ap_init;
     }
+
+    printk("[SMP] Initialized %zu cores (BSP + %zu APs)\n", cpu_count, ap_count);
 }

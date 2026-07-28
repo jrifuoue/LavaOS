@@ -126,5 +126,21 @@ void lava2d_matrix_blit(
     int dst_x, int dst_y
 );
 
+void lava2d_draw_char(
+    Lava2DContext* ctx,
+    int x, int y,
+    char c,
+    uint32_t color
+);
+
+int lava2d_draw_string(
+    Lava2DContext* ctx,
+    int x, int y,
+    const char* str,
+    uint32_t color
+);
+
+int lava2d_text_width(const char* str);
+
 void lava2d_update_dirty(Lava2DContext* ctx, int x, int y, int w, int h);
 void lava2d_present(Lava2DContext* ctx);

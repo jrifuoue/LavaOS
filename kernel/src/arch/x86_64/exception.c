@@ -3,6 +3,7 @@
 #include "log.h"
 #include "task.h"
 #include "task_regs.h"
+#include "../../printk.h"
 #include <mem/memregion.h>
 
 typedef struct StackFrame {
@@ -55,6 +56,9 @@ enum {
 };
 void exception_handler(ExceptionFrame* frame, uint64_t cr2) {
     mutex_lock(&err);
+    printk_set_color(0xFF0000, 0x000000);
+    printk("[BUG!] An unknown error has occurred. Please check the log.");
+    printk_reset_color();
     if(frame->irq == EXCEPTION_PAGE_FAULT) {
         kinfo("Page fault at virtual address %p\n",(void*)cr2);
     }

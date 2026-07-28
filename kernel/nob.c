@@ -245,4 +245,11 @@ int main(int argc, char** argv) {
         if(nob_needs_rebuild1(out, iso_files[i]) && !nob_copy_file(iso_files[i], out)) return 1;
         nob_temp_rewind(temp);
     }
+
+    // Copy kernel headers to initrd/include/
+    char* rootdir = getenv("ROOTDIR");
+    if(rootdir) {
+        cmd_append(&cmd, "cp", "-r", "shared/include/.", temp_sprintf("%s/include/", rootdir));
+        nob_cmd_run_sync_and_reset(&cmd);
+    }
 }

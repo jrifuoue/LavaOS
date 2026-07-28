@@ -7,6 +7,20 @@
 #include <limine.h>
 
 extern volatile struct limine_memmap_request limine_memmap_request;
+extern volatile struct limine_hhdm_request limine_hhdm_request;
+
+size_t get_hhdm_size(void) {
+    static size_t cached = 0;
+    if(cached) return cached;
+    size_t highest = 0;
+    for(size_t i = 0; i < limine_memmap_request.response->entry_count; ++i) {
+        struct limine_memmap_entry* entry = limine_memmap_request.response->entries[i];
+        size_t end = entry->base + entry->length;
+        if(end > highest) highest = end;
+    }
+    cached = PAGE_ALIGN_UP(highest);
+    return cached;
+}
 
 static volatile struct limine_framebuffer_request limine_framebuffer_request = {
     .id = LIMINE_FRAMEBUFFER_REQUEST,
